@@ -57,12 +57,16 @@
     .stage{padding:0;gap:0}
     body{background:#fff}
     @page{size:A4;margin:0}
-    /* break-before (not -after): the initial forced break is ignored by
-       browsers, so no trailing blank page even when the DOM's last .page
-       is hidden (e.g. test mode or print-fronts/backs).
-       height: calc(...-1px) so the box never rounds past the printable
-       A4 height (297mm ≈ 1122.5px @96dpi rounds up) and spills a blank page. */
-    .page{box-shadow:none;margin:0;break-before:page;height:calc(297mm - 1px);overflow:hidden}
+    /* Force a break AFTER each page, then remove it from the last visible
+       page via the .print-last class (set in JS). Structural selectors like
+       :last-of-type can't be used here because hidden pages (test mode /
+       print-fronts/backs) still count. Legacy page-break-* props for Safari.
+       height: calc(...-1px) + overflow:hidden so the box never rounds past
+       the printable A4 height (297mm ≈ 1122.5px @96dpi) and spills a blank. */
+    .page{box-shadow:none;margin:0;height:calc(297mm - 1px);overflow:hidden;
+          break-after:page;page-break-after:always;
+          break-inside:avoid;page-break-inside:avoid}
+    .page.print-last{break-after:avoid;page-break-after:avoid}
     body.print-fronts .back-page{display:none}
     body.print-backs .front-page{display:none}
     body.test-mode .page:not([data-sheet="0"]){display:none}
@@ -251,11 +255,25 @@ $('#pFront').addEventListener('click',()=>doPrint('print-fronts'));
 $('#pBack').addEventListener('click',()=>doPrint('print-backs'));
 
 function doPrint(mode){
+  const test = $('#test').checked;
   document.body.classList.toggle('cut',$('#cut').checked);
-  document.body.classList.toggle('test-mode',$('#test').checked);
+  document.body.classList.toggle('test-mode',test);
   document.body.classList.add(mode);
+
+  // Tag the last page that will actually print, so its trailing page break
+  // is dropped — kills the blank final page in every browser (incl. Safari),
+  // regardless of hidden sibling pages.
+  const sel = mode==='print-fronts' ? '.front-page' : '.back-page';
+  const visible = [...document.querySelectorAll(sel)]
+    .filter(p => !test || p.dataset.sheet==='0');
+  document.querySelectorAll('.print-last').forEach(p=>p.classList.remove('print-last'));
+  if(visible.length) visible[visible.length-1].classList.add('print-last');
+
   window.print();
-  setTimeout(()=>{ document.body.classList.remove('print-fronts','print-backs'); },300);
+  setTimeout(()=>{
+    document.body.classList.remove('print-fronts','print-backs','test-mode');
+    document.querySelectorAll('.print-last').forEach(p=>p.classList.remove('print-last'));
+  },300);
 }
 </script>
 </body>
