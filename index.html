@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Flashcards · print</title>
+<!-- Actually load Inter (referenced in font-family) with Cyrillic + Greek +
+     Latin at weights 400/600, so every script renders in the same font and
+     weight instead of falling back per-glyph to a thinner face. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -138,6 +144,20 @@ const $ = s => document.querySelector(s);
 const stage = $('#stage');
 let headers = [], dataRows = [], cards = [];
 const PER_SHEET = 10, COLS = 2, ROWS = 5;
+const FONT_WEIGHTS = ['400','500','600'];
+
+// Warm up the Inter subset faces (Cyrillic, Greek, Latin-ext) at the weights
+// we use. Google Fonts loads each subset lazily on first use, and that lazy
+// load can miss the 600 weight — so Cyrillic rendered as thin Inter-Regular.
+// Forcing the loads up front makes the preview use the real bold face.
+function loadFonts(text){
+  if(!(document.fonts && document.fonts.load)) return Promise.resolve();
+  const sample = 'Aa Bb Ёё Ыы Їґ λλ Γγ éç ' + (text || '');
+  return Promise.all(FONT_WEIGHTS.map(w =>
+    document.fonts.load(w + ' 26pt "Inter"', sample).catch(()=>{})
+  ));
+}
+loadFonts().then(()=>{ if(cards.length) render(); });
 
 function guessCol(hs, inc, exc){
   for(let i=0;i<hs.length;i++){
@@ -279,6 +299,9 @@ async function makePdf(side){
   const label = btn.textContent;
   btn.textContent = 'Rendering…'; btn.disabled = true;
   try{
+    // Force-load the exact Inter faces for the card text so html2canvas
+    // captures the real bold font, not a thin fallback.
+    await loadFonts(cards.map(c => c.front + c.back).join(''));
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
     for(let i=0;i<pages.length;i++){
