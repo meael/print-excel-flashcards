@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Flashcards · print</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   :root{
     --ink:#1c1b1a; --muted:#6b6864; --line:#d8d4cd; --bg:#f6f4ef;
@@ -46,10 +48,12 @@
         grid-template-rows:repeat(var(--rows),var(--cardH))}
   .card{display:flex;flex-direction:column;align-items:center;justify-content:center;
         text-align:center;padding:5mm;overflow:hidden}
-  .cut .card{outline:.25mm dashed #b9b6b0;outline-offset:-.12mm}
+  /* border, not outline: html2canvas (used for PDF export) doesn't render
+     outline. box-sizing:border-box keeps the card size unchanged. */
+  .cut .card{border:.25mm dashed #b9b6b0}
   .card .word{font-size:26pt;font-weight:600;line-height:1.1}
   .card .back-text{font-size:17pt;line-height:1.3}
-  .card.empty-cell{outline-color:transparent}
+  .card.empty-cell{border-color:transparent}
 
   @media print{
     .controls,.stage>.page-label,.empty{display:none!important}
@@ -107,19 +111,20 @@
     <label class="check"><input type="checkbox" id="test"> First sheet only (test)</label>
 
     <div class="btns">
-      <button class="b-primary" id="pFront" disabled>1 · Print fronts</button>
-      <button class="b-primary" id="pBack" disabled>2 · Print backs</button>
+      <button class="b-primary" id="pFront" disabled>1 · Download fronts PDF</button>
+      <button class="b-primary" id="pBack" disabled>2 · Download backs PDF</button>
     </div>
 
     <div class="summary" id="summary">Load files to begin.</div>
 
     <div class="steps">
       <b>How to print without auto-duplex:</b><br>
-      1. Enable "test", click <b>Print fronts</b>. In the print dialog: scale <b>100%</b>, margins <b>none</b>, no "fit to page".<br>
+      1. Enable "test", click <b>Download fronts PDF</b> and print it: scale <b>100%</b>, margins <b>none</b>, no "fit to page".<br>
       2. Take the sheet, flip it on the long edge (like a page), put it back in the tray.<br>
-      3. Click <b>Print backs</b>. Hold it to the light — does the back sit behind the front?<br>
+      3. Download &amp; print <b>backs PDF</b>. Hold it to the light — does the back sit behind the front?<br>
       4. If left–right is swapped → switch "Flip" to short edge and repeat the test.<br>
-      5. Disable "test" and print everything the same way: fronts first, then backs.
+      5. Disable "test" and print everything the same way: fronts first, then backs.<br>
+      <i>PDFs print identically in every browser — no browser print quirks.</i>
     </div>
   </aside>
 
@@ -251,29 +256,48 @@ function setBtns(on){ $('#pFront').disabled=!on; $('#pBack').disabled=!on; }
 // cut lines via a body class too (for .cut .card)
 $('#cut').addEventListener('change',()=>document.body.classList.toggle('cut',$('#cut').checked));
 
-$('#pFront').addEventListener('click',()=>doPrint('print-fronts'));
-$('#pBack').addEventListener('click',()=>doPrint('print-backs'));
+$('#pFront').addEventListener('click',()=>makePdf('front'));
+$('#pBack').addEventListener('click',()=>makePdf('back'));
 
-function doPrint(mode){
+// Render the visible .page nodes to an A4 PDF via html2canvas — output is
+// pixel-identical to the on-screen preview and prints the same in every
+// browser (no print-CSS fragmentation quirks). Rasterized at scale 3 for a
+// crisp result at the 85×54mm card size, and works with any language/font.
+const A4_W = 210, A4_H = 297, RASTER_SCALE = 3;
+let busy = false;
+
+async function makePdf(side){
+  if(busy || typeof html2canvas==='undefined' || !window.jspdf){ return; }
   const test = $('#test').checked;
-  document.body.classList.toggle('cut',$('#cut').checked);
-  document.body.classList.toggle('test-mode',test);
-  document.body.classList.add(mode);
-
-  // Tag the last page that will actually print, so its trailing page break
-  // is dropped — kills the blank final page in every browser (incl. Safari),
-  // regardless of hidden sibling pages.
-  const sel = mode==='print-fronts' ? '.front-page' : '.back-page';
-  const visible = [...document.querySelectorAll(sel)]
+  const sel = side==='front' ? '.front-page' : '.back-page';
+  const pages = [...document.querySelectorAll(sel)]
     .filter(p => !test || p.dataset.sheet==='0');
-  document.querySelectorAll('.print-last').forEach(p=>p.classList.remove('print-last'));
-  if(visible.length) visible[visible.length-1].classList.add('print-last');
+  if(!pages.length) return;
 
-  window.print();
-  setTimeout(()=>{
-    document.body.classList.remove('print-fronts','print-backs','test-mode');
-    document.querySelectorAll('.print-last').forEach(p=>p.classList.remove('print-last'));
-  },300);
+  busy = true;
+  const btn = side==='front' ? $('#pFront') : $('#pBack');
+  const label = btn.textContent;
+  btn.textContent = 'Rendering…'; btn.disabled = true;
+  try{
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+    for(let i=0;i<pages.length;i++){
+      const canvas = await html2canvas(pages[i], {
+        scale: RASTER_SCALE, backgroundColor:'#ffffff', useCORS:true, logging:false
+      });
+      // JPEG, not PNG: the mostly-white card layout compresses ~100× smaller
+      // (a few hundred KB vs tens of MB) with no visible loss at print size.
+      const img = canvas.toDataURL('image/jpeg', 0.85);
+      if(i>0) doc.addPage();
+      doc.addImage(img, 'JPEG', 0, 0, A4_W, A4_H);
+    }
+    doc.save(side==='front' ? 'flashcards-fronts.pdf' : 'flashcards-backs.pdf');
+  } catch(err){
+    console.error(err);
+    alert('PDF generation failed: '+(err && err.message ? err.message : err));
+  } finally {
+    btn.textContent = label; btn.disabled = false; busy = false;
+  }
 }
 </script>
 </body>
