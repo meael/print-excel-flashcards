@@ -114,7 +114,8 @@
     </div>
 
     <label class="check"><input type="checkbox" id="cut" checked> Cut lines</label>
-    <label class="check"><input type="checkbox" id="test"> First sheet only (test)</label>
+    <label class="check"><input type="checkbox" id="test"> First 2 sheets only (test)</label>
+    <label class="check"><input type="checkbox" id="revBack" checked> Backs last-to-first (flip whole stack)</label>
 
     <div class="btns">
       <button class="b-primary" id="pFront" disabled>1 · Download fronts PDF</button>
@@ -130,6 +131,7 @@
       3. Download &amp; print <b>backs PDF</b>. Hold it to the light — does the back sit behind the front?<br>
       4. If left–right is swapped → switch "Flip" to short edge and repeat the test.<br>
       5. Disable "test" and print everything the same way: fronts first, then backs.<br>
+      6. Multiple sheets: if the back lands on the wrong sheet (order reversed), enable <b>"Backs last-to-first"</b> — it prints backs from the last sheet, matching a flipped stack. Test with 2 sheets.<br>
       <i>PDFs print identically in every browser — no browser print quirks.</i>
     </div>
   </aside>
@@ -291,8 +293,14 @@ async function makePdf(side){
   const test = $('#test').checked;
   const sel = side==='front' ? '.front-page' : '.back-page';
   const pages = [...document.querySelectorAll(sel)]
-    .filter(p => !test || p.dataset.sheet==='0');
+    .filter(p => !test || p.dataset.sheet==='0' || p.dataset.sheet==='1');
   if(!pages.length) return;
+
+  // Manual duplex on a multi-sheet stack: printing all fronts then flipping
+  // the whole output stack over reverses the sheet order. Emit the backs
+  // last-sheet-first so back N lands on front N. (Within-sheet L/R mirroring
+  // is handled separately by the flip-edge option.)
+  if(side==='back' && $('#revBack').checked) pages.reverse();
 
   busy = true;
   const btn = side==='front' ? $('#pFront') : $('#pBack');
