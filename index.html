@@ -57,8 +57,10 @@
     .stage{padding:0;gap:0}
     body{background:#fff}
     @page{size:A4;margin:0}
-    .page{box-shadow:none;margin:0;break-after:page}
-    .page:last-of-type{break-after:auto}
+    /* break-before (not -after): the initial forced break is ignored by
+       browsers, so no trailing blank page even when the DOM's last .page
+       is hidden (e.g. test mode or print-fronts/backs). */
+    .page{box-shadow:none;margin:0;break-before:page}
     body.print-fronts .back-page{display:none}
     body.print-backs .front-page{display:none}
     body.test-mode .page:not([data-sheet="0"]){display:none}
