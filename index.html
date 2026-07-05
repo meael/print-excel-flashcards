@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flashcards · print</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --ink:#1c1b1a; --muted:#6b6864; --line:#d8d4cd; --bg:#f6f4ef;
+    --accent:#2f6f6a; --card:#ffffff;
+    /* card ≈ business card */
+    --cardW:85mm; --cardH:54mm;
+    --cols:2; --rows:5;
+    --padV:13.5mm; --padH:20mm; /* centers the 170×270 grid on A4 */
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+  .wrap{display:flex;gap:0;align-items:flex-start}
+  /* ── panel ── */
+  .controls{position:sticky;top:0;width:320px;min-height:100vh;padding:22px 20px;background:#fffdf9;border-right:1px solid var(--line)}
+  .controls h1{font-size:16px;margin:0 0 4px;letter-spacing:-.01em}
+  .controls .sub{font-size:12px;color:var(--muted);margin:0 0 18px}
+  .field{margin-bottom:14px}
+  .field label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
+  select,input[type=file]{width:100%;font:inherit;font-size:13px;padding:7px 8px;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .row{display:flex;gap:8px}
+  .row .field{flex:1}
+  .check{display:flex;align-items:center;gap:8px;font-size:13px;margin:12px 0}
+  .check input{width:16px;height:16px;accent-color:var(--accent)}
+  .btns{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+  button{font:inherit;font-size:13px;font-weight:600;padding:10px 12px;border:0;border-radius:8px;cursor:pointer}
+  .b-primary{background:var(--accent);color:#fff}
+  .b-primary:disabled{background:#b9b6b0;cursor:not-allowed}
+  .b-ghost{background:#fff;border:1px solid var(--line);color:var(--ink)}
+  .summary{font-size:12px;color:var(--muted);margin-top:14px;line-height:1.5}
+  .steps{font-size:12px;color:var(--muted);line-height:1.55;margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+  .steps b{color:var(--ink)}
+  /* ── preview ── */
+  .stage{flex:1;padding:28px;display:flex;flex-direction:column;align-items:center;gap:26px}
+  .empty{margin-top:22vh;color:var(--muted);font-size:14px;text-align:center;max-width:340px;line-height:1.5}
+  .page-label{font-size:11px;color:var(--muted);margin:0 0 -14px;align-self:flex-start}
+  .page{width:210mm;height:297mm;padding:var(--padV) var(--padH);background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.10)}
+  .grid{width:100%;height:100%;display:grid;
+        grid-template-columns:repeat(var(--cols),var(--cardW));
+        grid-template-rows:repeat(var(--rows),var(--cardH))}
+  .card{display:flex;flex-direction:column;align-items:center;justify-content:center;
+        text-align:center;padding:5mm;overflow:hidden}
+  .cut .card{outline:.25mm dashed #b9b6b0;outline-offset:-.12mm}
+  .card .word{font-size:26pt;font-weight:600;line-height:1.1}
+  .card .back-text{font-size:17pt;line-height:1.3}
+  .card.empty-cell{outline-color:transparent}
+
+  @media print{
+    .controls,.stage>.page-label,.empty{display:none!important}
+    .wrap{display:block}
+    .stage{padding:0;gap:0}
+    body{background:#fff}
+    @page{size:A4;margin:0}
+    .page{box-shadow:none;margin:0;break-after:page}
+    .page:last-of-type{break-after:auto}
+    body.print-fronts .back-page{display:none}
+    body.print-backs .front-page{display:none}
+    body.test-mode .page:not([data-sheet="0"]){display:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <aside class="controls">
+    <h1>Flashcards</h1>
+    <p class="sub">Business card 85×54 mm · 10 per A4 sheet · double-sided by hand</p>
+
+    <div class="field">
+      <label>.xls / .xlsx files (multiple allowed)</label>
+      <input type="file" id="file" accept=".xls,.xlsx" multiple>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Front</label>
+        <select id="frontCol"></select>
+      </div>
+      <div class="field">
+        <label>Back</label>
+        <select id="backCol"></select>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Sheet flip</label>
+      <select id="flip">
+        <option value="long" selected>Long edge (left↔right)</option>
+        <option value="short">Short edge (top↔bottom)</option>
+      </select>
+    </div>
+
+    <label class="check"><input type="checkbox" id="cut" checked> Cut lines</label>
+    <label class="check"><input type="checkbox" id="test"> First sheet only (test)</label>
+
+    <div class="btns">
+      <button class="b-primary" id="pFront" disabled>1 · Print fronts</button>
+      <button class="b-primary" id="pBack" disabled>2 · Print backs</button>
+    </div>
+
+    <div class="summary" id="summary">Load files to begin.</div>
+
+    <div class="steps">
+      <b>How to print without auto-duplex:</b><br>
+      1. Enable "test", click <b>Print fronts</b>. In the print dialog: scale <b>100%</b>, margins <b>none</b>, no "fit to page".<br>
+      2. Take the sheet, flip it on the long edge (like a page), put it back in the tray.<br>
+      3. Click <b>Print backs</b>. Hold it to the light — does the back sit behind the front?<br>
+      4. If left–right is swapped → switch "Flip" to short edge and repeat the test.<br>
+      5. Disable "test" and print everything the same way: fronts first, then backs.
+    </div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="empty" id="empty">Drop or pick vocabulary files.<br>Front and back sheets will appear here.</div>
+  </main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const stage = $('#stage');
+let headers = [], dataRows = [], cards = [];
+const PER_SHEET = 10, COLS = 2, ROWS = 5;
+
+function guessCol(hs, inc, exc){
+  for(let i=0;i<hs.length;i++){
+    const h=(hs[i]||'').toString().toLowerCase();
+    if(inc.some(p=>h.includes(p)) && !(exc||[]).some(e=>h.includes(e))) return i;
+  }
+  return -1;
+}
+
+$('#file').addEventListener('change', async e => {
+  const files = [...e.target.files];
+  if(!files.length) return;
+  dataRows = []; headers = [];
+  for(const f of files){
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(new Uint8Array(buf), {type:'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1, blankrows:false});
+    if(!rows.length) continue;
+    if(!headers.length) headers = rows[0].map(x => (x==null?'':String(x)));
+    for(let i=1;i<rows.length;i++) dataRows.push(rows[i]||[]);
+  }
+  buildColSelects();     // sets the auto-detected columns
+  rebuildCards();        // builds cards from the selected columns
+  render();
+});
+
+function buildColSelects(){
+  const mk = (sel, guessIdx) => {
+    sel.innerHTML='';
+    headers.forEach((h,i)=>{
+      const o=document.createElement('option');
+      o.value=i; o.textContent=h||('column '+(i+1));
+      sel.appendChild(o);
+    });
+    sel.value = guessIdx;
+  };
+  const fc = guessCol(headers,['слово','word','front','term'],[]);
+  const bc = guessCol(headers,['перевод','translation','back','meaning','definition'],['дополн','extra']);
+  mk($('#frontCol'), fc>=0?fc:2);
+  mk($('#backCol'),  bc>=0?bc:4);
+}
+
+function rebuildCards(){
+  const F = +$('#frontCol').value, B = +$('#backCol').value;
+  cards = [];
+  for(const r of dataRows){
+    const front=(r[F]==null?'':String(r[F])).trim();
+    const back =(r[B]==null?'':String(r[B])).trim();
+    if(front || back) cards.push({front, back});
+  }
+}
+
+$('#frontCol').addEventListener('change', ()=>{ rebuildCards(); render(); });
+$('#backCol').addEventListener('change',  ()=>{ rebuildCards(); render(); });
+$('#flip').addEventListener('change', render);
+$('#cut').addEventListener('change', render);
+
+function cardEl(c, side){
+  const d=document.createElement('div');
+  d.className='card'+(c?'':' empty-cell');
+  if(c){
+    const el=document.createElement('div');
+    if(side==='front'){ el.className='word'; el.textContent=c.front||''; }
+    else              { el.className='back-text'; el.textContent=c.back||''; }
+    d.appendChild(el);
+  }
+  return d;
+}
+
+function render(){
+  stage.querySelectorAll('.page,.page-label').forEach(n=>n.remove());
+  const empty=$('#empty');
+  if(!cards.length){ empty.style.display=''; setBtns(false); $('#summary').textContent='Load files to begin.'; return; }
+  empty.style.display='none';
+  setBtns(true);
+  document.body.classList.toggle('cut', $('#cut').checked);
+  document.querySelectorAll('.wrap')[0].classList.toggle('cut',$('#cut').checked);
+
+  const flip=$('#flip').value;
+  const sheets=Math.ceil(cards.length/PER_SHEET);
+
+  for(let s=0;s<sheets;s++){
+    const slice=cards.slice(s*PER_SHEET,(s+1)*PER_SHEET);
+
+    // front — word only
+    addLabel('Sheet '+(s+1)+' · front (word)');
+    const fp=page(s,'front-page');
+    for(let pos=0;pos<PER_SHEET;pos++) fp.g.appendChild(cardEl(slice[pos],'front'));
+
+    // back — translation only, mirror the position
+    addLabel('Sheet '+(s+1)+' · back (translation)');
+    const bp=page(s,'back-page');
+    for(let pos=0;pos<PER_SHEET;pos++){
+      const r=Math.floor(pos/COLS), c=pos%COLS;
+      const src = flip==='long' ? r*COLS+(COLS-1-c) : (ROWS-1-r)*COLS+c;
+      bp.g.appendChild(cardEl(slice[src],'back'));
+    }
+  }
+
+  const last=cards.length - (sheets-1)*PER_SHEET;
+  $('#summary').innerHTML=`Cards: <b>${cards.length}</b> · Sheets: <b>${sheets}</b> (front+back = ${sheets*2} pages)<br>Last sheet: ${last} of ${PER_SHEET}.`;
+}
+
+function page(sheetIdx, cls){
+  const p=document.createElement('div');
+  p.className='page '+cls+($('#cut').checked?'':'');
+  p.dataset.sheet=sheetIdx;
+  const g=document.createElement('div'); g.className='grid';
+  p.appendChild(g); stage.appendChild(p);
+  return {p, g};
+}
+function addLabel(t){ const l=document.createElement('div'); l.className='page-label'; l.textContent=t; stage.appendChild(l); }
+function setBtns(on){ $('#pFront').disabled=!on; $('#pBack').disabled=!on; }
+
+// cut lines via a body class too (for .cut .card)
+$('#cut').addEventListener('change',()=>document.body.classList.toggle('cut',$('#cut').checked));
+
+$('#pFront').addEventListener('click',()=>doPrint('print-fronts'));
+$('#pBack').addEventListener('click',()=>doPrint('print-backs'));
+
+function doPrint(mode){
+  document.body.classList.toggle('cut',$('#cut').checked);
+  document.body.classList.toggle('test-mode',$('#test').checked);
+  document.body.classList.add(mode);
+  window.print();
+  setTimeout(()=>{ document.body.classList.remove('print-fronts','print-backs'); },300);
+}
+</script>
+</body>
+</html>
