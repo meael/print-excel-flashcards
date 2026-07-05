@@ -59,8 +59,10 @@
     @page{size:A4;margin:0}
     /* break-before (not -after): the initial forced break is ignored by
        browsers, so no trailing blank page even when the DOM's last .page
-       is hidden (e.g. test mode or print-fronts/backs). */
-    .page{box-shadow:none;margin:0;break-before:page}
+       is hidden (e.g. test mode or print-fronts/backs).
+       height: calc(...-1px) so the box never rounds past the printable
+       A4 height (297mm ≈ 1122.5px @96dpi rounds up) and spills a blank page. */
+    .page{box-shadow:none;margin:0;break-before:page;height:calc(297mm - 1px);overflow:hidden}
     body.print-fronts .back-page{display:none}
     body.print-backs .front-page{display:none}
     body.test-mode .page:not([data-sheet="0"]){display:none}
